@@ -1,13 +1,11 @@
 package com.demo.offline_upi.exception;
 
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-/**
- * Centrally intercepts custom exceptions and translates them into standardised ErrorResponse messages.
- */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -27,6 +25,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleTransactionReplayed(TransactionReplayedException ex) {
         ErrorResponse error = new ErrorResponse("TRANSACTION_REPLAYED", ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleConcurrencyCollision(OptimisticLockingFailureException ex) {
+        ErrorResponse error = new ErrorResponse("CONCURRENT_UPDATE_COLLISION",
+                "Simultaneous balance update detected at multiple bridges. Protected by optimistic locking.");
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

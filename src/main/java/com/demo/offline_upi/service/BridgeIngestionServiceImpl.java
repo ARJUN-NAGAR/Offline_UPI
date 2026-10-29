@@ -6,8 +6,10 @@ import com.demo.offline_upi.dto.TransactionStatusResponse;
 import com.demo.offline_upi.exception.DecryptionFailedException;
 import com.demo.offline_upi.exception.DuplicatePacketException;
 import com.demo.offline_upi.exception.TransactionReplayedException;
+import com.demo.offline_upi.model.Account;
 import com.demo.offline_upi.model.PaymentInstruction;
 import com.demo.offline_upi.model.Transaction;
+import com.demo.offline_upi.repository.AccountRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,10 +18,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 
-/**
- * Enterprise implementation of the bridge ingestion pipeline.
- * Performs sequential validation checks and triggers custom domain exception routing.
- */
 @Service
 public class BridgeIngestionServiceImpl implements BridgeIngestionService {
 
@@ -33,6 +31,9 @@ public class BridgeIngestionServiceImpl implements BridgeIngestionService {
 
     @Autowired
     private SettlementService settlement;
+
+    @Autowired
+    private AccountRepository accounts;
 
     @Value("${upi.mesh.packet-max-age-seconds:86400}")
     private long maxAgeSeconds;
@@ -66,18 +67,27 @@ public class BridgeIngestionServiceImpl implements BridgeIngestionService {
         // 3. Freshness Check (Replay Protection)
         long ageSeconds = (Instant.now().toEpochMilli() - instruction.getSignedAt()) / 1000;
         if (ageSeconds > maxAgeSeconds) {
-            log.warn("Packet {} too old ({}s), rejected",
-                    packetHash.substring(0, 12) + "...", ageSeconds);
+            log.warn("Packet {} too old ({}s), rejected", packetHash.substring(0, 12) + "...", ageSeconds);
             throw new TransactionReplayedException("Packet violates maximum age limit: " + ageSeconds + " seconds");
         }
-        if (ageSeconds < -300) { // small clock-skew tolerance
+        if (ageSeconds < -300) {
             throw new TransactionReplayedException("Packet timestamp is future-dated by " + (-ageSeconds) + " seconds");
         }
 
-        // 4. Core Account Settlement
+        // 4. UPI PIN Authentication Check (NEW SECURITY LAYER)
+        Account sender = accounts.findById(instruction.getSenderVpa())
+                .orElseThrow(() -> new IllegalArgumentException("Unknown sender VPA: " + instruction.getSenderVpa()));
+
+        if (!sender.verifyPin(instruction.getPinHash())) {
+            log.warn("AUTHENTICATION FAILED: Incorrect PIN for sender {}", sender.getVpa());
+            // Record as REJECTED in transaction ledger
+            Transaction tx = settlement.recordAuthFailure(instruction, packetHash, bridgeNodeId, hopCount, "INVALID_PIN");
+            return new TransactionStatusResponse("REJECTED", packetHash, "Invalid UPI PIN", tx.getId());
+        }
+
+        // 5. Core Account Settlement
         Transaction tx = settlement.settle(instruction, packetHash, bridgeNodeId, hopCount);
 
-        // Map outcome to clean Status Response
         return new TransactionStatusResponse(tx.getStatus().name(), packetHash, null, tx.getId());
     }
 }

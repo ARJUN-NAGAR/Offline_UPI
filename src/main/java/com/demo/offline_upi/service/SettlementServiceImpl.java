@@ -9,14 +9,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/**
- * Executes core accounting ledger updates inside transactional boundaries.
- */
 @Service
 public class SettlementServiceImpl implements SettlementService {
 
@@ -29,17 +27,15 @@ public class SettlementServiceImpl implements SettlementService {
     private TransactionRepository transactions;
 
     @Override
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Transaction settle(PaymentInstruction instruction, String packetHash,
                               String bridgeNodeId, int hopCount) {
 
         Account sender = accounts.findById(instruction.getSenderVpa())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Unknown sender VPA: " + instruction.getSenderVpa()));
+                .orElseThrow(() -> new IllegalArgumentException("Unknown sender VPA: " + instruction.getSenderVpa()));
 
         Account receiver = accounts.findById(instruction.getReceiverVpa())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Unknown receiver VPA: " + instruction.getReceiverVpa()));
+                .orElseThrow(() -> new IllegalArgumentException("Unknown receiver VPA: " + instruction.getReceiverVpa()));
 
         BigDecimal amount = instruction.getAmount();
         if (amount.signum() <= 0) {
@@ -49,7 +45,7 @@ public class SettlementServiceImpl implements SettlementService {
         if (sender.getBalance().compareTo(amount) < 0) {
             log.warn("Insufficient balance: {} has ₹{}, tried to send ₹{}",
                     sender.getVpa(), sender.getBalance(), amount);
-            return recordRejected(instruction, packetHash, bridgeNodeId, hopCount);
+            return recordRejected(instruction, packetHash, bridgeNodeId, hopCount, "INSUFFICIENT_FUNDS");
         }
 
         sender.setBalance(sender.getBalance().subtract(amount));
@@ -76,8 +72,15 @@ public class SettlementServiceImpl implements SettlementService {
         return tx;
     }
 
+    @Override
+    @Transactional
+    public Transaction recordAuthFailure(PaymentInstruction instruction, String packetHash,
+                                         String bridgeNodeId, int hopCount, String reason) {
+        return recordRejected(instruction, packetHash, bridgeNodeId, hopCount, reason);
+    }
+
     private Transaction recordRejected(PaymentInstruction instruction, String packetHash,
-                                       String bridgeNodeId, int hopCount) {
+                                       String bridgeNodeId, int hopCount, String reason) {
         Transaction tx = new Transaction();
         tx.setPacketHash(packetHash);
         tx.setSenderVpa(instruction.getSenderVpa());

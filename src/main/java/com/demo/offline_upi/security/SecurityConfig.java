@@ -23,7 +23,7 @@ public class SecurityConfig {
             .headers(headers -> headers.frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)) // Allows H2 console
             .authorizeHttpRequests(auth -> auth
                 // Allow public access to dashboard, H2 console, and server key info
-                .requestMatchers("/", "/index.html", "/h2-console/**", "/api/server-key", "/api/accounts").permitAll()
+                .requestMatchers("/", "/index.html", "/h2-console/**", "/api/server-key", "/api/accounts", "/api/transactions").permitAll()
                 // Inbound bridge endpoints require ROLE_BRIDGE
                 .requestMatchers("/api/bridge/**").hasRole("BRIDGE")
                 // Admin control / Simulator endpoints require ROLE_ADMIN

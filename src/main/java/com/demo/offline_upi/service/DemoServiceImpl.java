@@ -17,9 +17,6 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Implementation of DemoService to seed database and generate valid encrypted payloads.
- */
 @Service
 public class DemoServiceImpl implements DemoService {
 
@@ -37,17 +34,20 @@ public class DemoServiceImpl implements DemoService {
     @PostConstruct
     @Override
     public void initData() {
-        accounts.save(new Account("alice@demo", "Alice Smith", new BigDecimal("500.00")));
-        accounts.save(new Account("bob@demo", "Bob Jones", new BigDecimal("300.00")));
-        accounts.save(new Account("charlie@demo", "Charlie Brown", new BigDecimal("1000.00")));
-        log.info("Demo database seeded with 3 accounts.");
+        try {
+            // Seed accounts with pre-configured hashed PINs
+            accounts.save(new Account("alice@demo", "Alice Smith", new BigDecimal("500.00"), hashPin("1234")));
+            accounts.save(new Account("bob@demo", "Bob Jones", new BigDecimal("300.00"), hashPin("2345")));
+            accounts.save(new Account("charlie@demo", "Charlie Brown", new BigDecimal("1000.00"), hashPin("3456")));
+            log.info("Demo database seeded with 3 accounts and secure PIN hashes.");
+        } catch (Exception e) {
+            log.error("Failed to seed demo data", e);
+        }
     }
 
     @Override
     public InboundPacketRequest createSignedTransaction(String sender, String receiver,
                                                         BigDecimal amount, String pin, int ttl) throws Exception {
-        // In real UPI Lite/Offline, the client app has a pre-loaded Server Public Key.
-        // It encrypts the payload offline. We simulate that here.
         PaymentInstruction ins = new PaymentInstruction();
         ins.setSenderVpa(sender);
         ins.setReceiverVpa(receiver);
